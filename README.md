@@ -20,7 +20,7 @@ Geliştiriciler, sosyal medya yöneticileri ve etkileşim artırmak isteyen kull
 
 1. Bu repoyu klonla veya ZIP olarak indir:
    ```bash
-   git clone https://github.com/<kullanıcı-adın>/twitter-comment-followers.git
+   git clone https://github.com/PrivyXe/twitter-comment-followers.git
    ```
 2. Chrome tarayıcısında `chrome://extensions/` adresine git.  
 3. Sağ üstte **Developer Mode** (Geliştirici Modu) aktif et.  
