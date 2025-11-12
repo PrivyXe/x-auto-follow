@@ -66,6 +66,26 @@
         box-shadow: 0 10px 30px rgba(239, 68, 68, 0.4);
       }
 
+      button#unfollowMode {
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.9), rgba(220, 38, 38, 0.9));
+        box-shadow: 0 10px 30px rgba(239, 68, 68, 0.4);
+      }
+
+      button#unfollowMode:hover:not(:disabled) {
+        box-shadow: 0 14px 35px rgba(239, 68, 68, 0.5);
+      }
+
+      button#unfollowMode.active {
+        background: linear-gradient(135deg, rgba(139, 92, 246, 0.9), rgba(124, 58, 237, 0.9));
+        box-shadow: 0 10px 30px rgba(139, 92, 246, 0.4);
+      }
+
+      .divider {
+        height: 1px;
+        background: rgba(255, 255, 255, 0.1);
+        margin: 20px 0;
+      }
+
       .mode-label {
         font-size: 11px;
         color: #6b7280;
@@ -107,12 +127,18 @@
     </style>
   </head>
   <body>
-    <h3>🔄 Auto Follow</h3>
-    <p>Open a tweet detail page, then press the button. Use responsibly.</p>
+    <h3>🔄 Auto Follow/Unfollow</h3>
+    <p>Open a tweet detail page or your following page. Use responsibly.</p>
     
-    <div class="mode-label">Auto Background Mode</div>
+    <div class="mode-label">Auto Follow Mode</div>
     <p style="font-size:12px; margin-bottom: 12px;">Automatically follows 3 verified accounts every 5 seconds</p>
-    <button id="autoMode">🔄 Start Auto Mode</button>
+    <button id="autoMode">🔄 Start Auto Follow</button>
+    
+    <div class="divider"></div>
+    
+    <div class="mode-label">Auto Unfollow Mode</div>
+    <p style="font-size:12px; margin-bottom: 12px;">Unfollows accounts that don't follow you back (go to your Following page)</p>
+    <button id="unfollowMode">❌ Start Auto Unfollow</button>
     
     <p id="status"></p>
     <script src="popup.js"></script>

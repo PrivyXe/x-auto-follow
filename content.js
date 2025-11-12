@@ -5,6 +5,10 @@
   let autoModeInterval = null;
   let autoModeFollowCount = 0; // Auto mode'da takip edilen sayısı
   let autoModeSeenUsers = new Set(); // Auto mode için görülen kullanıcılar
+  
+  let unfollowMode = false; // Unfollow modu
+  let unfollowModeInterval = null;
+  let unfollowModeCount = 0; // Unfollow edilen sayısı
 
   const DEVELOPER_USERNAME = "privyxe";
 
@@ -114,24 +118,38 @@
   const collectFollowTargets = (seenUsers) => {
     const rawElements = [];
     
-    log("Searching for 3-dot menu buttons in tweets...");
+    log("Collecting verified accounts from comments...");
     
-    // Twitter'da takip butonları 3 nokta menüsü içinde!
-    // Her tweet'in article elementini bul
+    // Tüm yorumları (article) bul
     const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
     log(`Found ${articles.length} tweets on page`);
     
+    let verifiedCount = 0;
+    let nonVerifiedCount = 0;
+    
     for (const article of articles) {
-      // Article içindeki 3 nokta butonunu bul (caret button veya overflow menu)
-      const menuButton = article.querySelector('button[data-testid="caret"]');
+      // Mavi tik kontrolü
+      const isVerified = hasVerifiedBadge(article);
       
-      if (menuButton && !rawElements.includes(article)) {
-        // Article'ı sakla (3 nokta butonuna tıklayacağız)
-        rawElements.push({ article, menuButton });
+      if (isVerified) {
+        // Username'i çıkar
+        const username = extractUsername(article);
+        
+        if (username) {
+          // 3 nokta butonunu bul
+          const menuButton = article.querySelector('button[data-testid="caret"]');
+          
+          if (menuButton && !rawElements.some(item => item.username === username)) {
+            rawElements.push({ article, menuButton, username });
+            verifiedCount++;
+          }
+        }
+      } else {
+        nonVerifiedCount++;
       }
     }
     
-    log(`Found ${rawElements.length} tweets with menu buttons`);
+    log(`Found ${verifiedCount} verified accounts, skipped ${nonVerifiedCount} non-verified`);
     
     // Yöntem 2: Fallback - css-1jxf684 içeren butonları ara
     if (rawElements.length === 0) {
@@ -160,16 +178,15 @@
     for (const item of rawElements) {
       if (!item) continue;
       
-      // Yeni format: {article, menuButton}
+      // Yeni format: {article, menuButton, username}
       const article = item.article || item;
+      const username = item.username || extractUsername(article);
       
       // Zaten işlenmiş mi kontrol et
       if (article.dataset && article.dataset.autoFollowLocked === "true") {
         continue;
       }
 
-      // Username'i article'dan çıkar
-      const username = extractUsername(article);
       const key = username ? `user-${username.toLowerCase()}` : `article-${Math.random()}`;
 
       if (seenUsers.has(key)) {
@@ -347,7 +364,48 @@
     }
 
     if (message?.type === "check-status") {
-      sendResponse({ isRunning, shouldStop, autoMode, autoModeFollowCount });
+      sendResponse({ isRunning, shouldStop, autoMode, autoModeFollowCount, unfollowMode, unfollowModeCount });
+      return false;
+    }
+
+    if (message?.type === "start-unfollow-mode") {
+      if (unfollowMode) {
+        sendResponse({ status: "already-running" });
+        return false;
+      }
+
+      unfollowMode = true;
+      unfollowModeCount = 0;
+      log("Unfollow mode started - will unfollow non-followers every 5 seconds");
+
+      // İlk çalıştırma
+      runUnfollowCycle();
+
+      // Her 5 saniyede bir kontrol et
+      unfollowModeInterval = setInterval(() => {
+        if (unfollowMode) {
+          runUnfollowCycle();
+        }
+      }, 5000);
+
+      sendResponse({ status: "unfollow-mode-started" });
+      return false;
+    }
+
+    if (message?.type === "stop-unfollow-mode") {
+      if (!unfollowMode) {
+        sendResponse({ status: "not-running" });
+        return false;
+      }
+
+      unfollowMode = false;
+      if (unfollowModeInterval) {
+        clearInterval(unfollowModeInterval);
+        unfollowModeInterval = null;
+      }
+
+      log("Unfollow mode stopped", { totalUnfollowed: unfollowModeCount });
+      sendResponse({ status: "unfollow-mode-stopped", totalUnfollowed: unfollowModeCount });
       return false;
     }
 
@@ -396,6 +454,85 @@
     return false;
   });
 
+  // "Seni takip ediyor" kontrolü
+  const isFollowingBack = (button) => {
+    // Butonun parent container'ını bul
+    const container = button.closest('[data-testid="UserCell"]') || button.closest('div[role="button"]');
+    if (!container) return false;
+
+    // Container içinde "Seni takip ediyor" yazısını ara
+    const spans = container.querySelectorAll('span');
+    for (const span of spans) {
+      const text = span.textContent?.trim().toLowerCase();
+      if (text === 'seni takip ediyor' || text === 'follows you') {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  // Unfollow modu - takipten çık
+  const runUnfollowCycle = async () => {
+    if (!unfollowMode || isRunning) return;
+
+    log("Unfollow mode: Checking for non-followers");
+
+    // "Following" (Takip Edilenler) sayfasındaki "Following" butonlarını bul
+    const followingButtons = Array.from(document.querySelectorAll('button[data-testid$="-unfollow"]'));
+    
+    if (followingButtons.length === 0) {
+      log("Unfollow mode: No following buttons found, scrolling");
+      window.scrollBy({ top: window.innerHeight * 0.6, behavior: "smooth" });
+      return;
+    }
+
+    log(`Unfollow mode: Found ${followingButtons.length} accounts to check`);
+
+    // Sadece seni takip ETMEYENleri filtrele
+    const nonFollowers = followingButtons.filter(button => !isFollowingBack(button));
+    log(`Unfollow mode: ${nonFollowers.length} don't follow back, ${followingButtons.length - nonFollowers.length} follow back (keeping)`);
+
+    // İlk 3 hesabı kontrol et
+    const batch = nonFollowers.slice(0, 3);
+
+    for (const button of batch) {
+      try {
+        // Aria-label'dan kullanıcı adını çıkar
+        const ariaLabel = button.getAttribute('aria-label');
+        const usernameMatch = ariaLabel?.match(/@([\w]+)/);
+        const username = usernameMatch ? usernameMatch[1] : 'unknown';
+
+        // Butona tıkla (unfollow menüsü açılır)
+        button.click();
+        await wait(500);
+
+        // Menüde "Takibi bırak" veya "Unfollow" butonunu bul
+        const confirmButton = document.querySelector('[data-testid="confirmationSheetConfirm"]');
+        
+        if (confirmButton) {
+          confirmButton.click();
+          unfollowModeCount += 1;
+          log("Unfollow mode: ✓ Unfollowed (doesn't follow back)", { username, total: unfollowModeCount });
+
+          // Badge güncelle
+          chrome.runtime.sendMessage({
+            type: "update-badge",
+            count: unfollowModeCount
+          });
+        } else {
+          log("Unfollow mode: Confirm button not found, canceling");
+          // ESC tuşuna bas veya body'ye tıkla
+          document.body.click();
+        }
+
+        await wait(randomBetween([2000, 3500]));
+      } catch (error) {
+        log("Unfollow mode: Error", { error: error.message });
+      }
+    }
+  };
+
   // Arka plan otomatik modu için 3 kişilik döngü
   const runAutoFollowCycle = async () => {
     if (!autoMode || isRunning) return;
@@ -433,11 +570,10 @@
         });
         
         if (followItem) {
-          // Username'i çıkar
-          const usernameMatch = followItem.textContent?.match(/@([\w]+)/);
-          const username = usernameMatch ? usernameMatch[1] : 'unknown';
+          // Username zaten collectFollowTargets'tan geliyor
+          const username = target.username || 'unknown';
           
-          // 3. Takip et'e tıkla
+          // Takip et'e tıkla (zaten verified olduğu filtrelendi)
           followItem.click();
           
           // Article'ı locked olarak işaretle
@@ -446,7 +582,7 @@
           }
           
           autoModeFollowCount += 1;
-          log("Auto mode: ✓ Followed via menu", { username, total: autoModeFollowCount });
+          log("Auto mode: ✓ Followed verified account", { username, total: autoModeFollowCount });
           
           // Badge'i güncelle
           chrome.runtime.sendMessage({

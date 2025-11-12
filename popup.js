@@ -1,5 +1,6 @@
 const statusEl = document.getElementById("status");
 const autoModeButton = document.getElementById("autoMode");
+const unfollowModeButton = document.getElementById("unfollowMode");
 
 const setStatus = (message, isError = false) => {
   statusEl.textContent = message;
@@ -119,6 +120,50 @@ autoModeButton.addEventListener("click", async () => {
     // Error already handled
   }).finally(() => {
     autoModeButton.disabled = false;
+  });
+});
+
+unfollowModeButton.addEventListener("click", async () => {
+  const isActive = unfollowModeButton.classList.contains("active");
+  unfollowModeButton.disabled = true;
+
+  await withErrorHandling(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) {
+      throw new Error("No active tab detected.");
+    }
+
+    const isTwitterUrl = /https:\/\/(twitter|x)\.com\/.+/.test(tab.url);
+    if (!isTwitterUrl) {
+      throw new Error("Open your Following page on Twitter first.");
+    }
+
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["content.js"]
+    });
+
+    if (isActive) {
+      // Stop unfollow mode
+      const response = await chrome.tabs.sendMessage(tab.id, { type: "stop-unfollow-mode" });
+      unfollowModeButton.classList.remove("active");
+      unfollowModeButton.textContent = "❌ Start Auto Unfollow";
+      
+      const totalUnfollowed = response?.totalUnfollowed || 0;
+      setStatus(`Unfollow stopped. Total unfollowed: ${totalUnfollowed}`);
+      
+      chrome.action.setBadgeText({ text: "" });
+    } else {
+      // Start unfollow mode
+      await chrome.tabs.sendMessage(tab.id, { type: "start-unfollow-mode" });
+      unfollowModeButton.classList.add("active");
+      unfollowModeButton.textContent = "⏸ Stop Unfollow";
+      setStatus("Unfollow mode active! Checking accounts...");
+    }
+  }).catch(() => {
+    // Error already handled
+  }).finally(() => {
+    unfollowModeButton.disabled = false;
   });
 });
 
